@@ -1,0 +1,34 @@
+name: mnd_player
+description: Full-featured Meander quest player. Ported from main_app GameScreen.
+version: 0.1.0
+publish_to: 'none'
+
+environment:
+  sdk: ^3.9.2
+  flutter: '>=3.24.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  mnd_core:
+    path: ../mnd_core
+  flutter_riverpod: ^2.5.1
+  audioplayers: ^6.0.0
+  markdown_widget: ^2.3.1
+  photo_view: ^0.14.0
+  url_launcher: ^6.2.6
+  path_provider: ^2.0.15
+  shared_preferences: ^2.2.3
+  wakelock_plus: ^1.2.0
+  expressions: ^0.2.5+3
+  crypto: ^3.0.7
+  uuid: ^3.0.7
+  archive: ^4.0.7
+  encrypt: ^5.0.3
+  pointycastle: ^3.9.1
+  google_fonts: ^6.3.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0

@@ -1,0 +1,18 @@
+# Build output
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+pubspec.lock
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Quest data (only binary .mnd remains in repo)
+assets/quest/

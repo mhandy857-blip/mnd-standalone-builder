@@ -1,0 +1,242 @@
+name: Build Standalone App
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_name:
+        description: 'Application display name (e.g. "Mystery of the Lighthouse")'
+        required: true
+        type: string
+        default: 'My Quest'
+      package_name:
+        description: 'Android package name / iOS bundle ID (e.g. com.author.questname)'
+        required: true
+        type: string
+        default: 'com.example.myquest'
+      platform:
+        description: 'Target platform'
+        required: true
+        type: choice
+        options:
+          - android-apk
+          - android-aab
+          - web
+          - windows
+          - linux
+      signing_keystore_b64:
+        description: 'Android signing keystore (.jks) encoded in Base64 (optional, only for Google Play AAB)'
+        required: false
+        type: string
+        default: ''
+      keystore_password:
+        description: 'Keystore password'
+        required: false
+        type: string
+        default: ''
+      key_alias:
+        description: 'Key alias'
+        required: false
+        type: string
+        default: ''
+      key_password:
+        description: 'Key password'
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  build:
+    runs-on: ${{ contains(fromJson('["android-apk","android-aab","web","linux"]'), inputs.platform) && 'ubuntu-latest' || 'windows-latest' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.32.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Setup Android SDK
+        if: contains(inputs.platform, 'android')
+        uses: android-actions/setup-android@v3
+
+      - name: Place quest asset
+        shell: bash
+        env:
+          ASSET_DATA_B64: ${{ secrets.QUEST_MND_B64 }}
+        run: |
+          if [ -z "$ASSET_DATA_B64" ]; then
+            echo "::notice::No quest.mnd provided via secret, using placeholder from repo"
+          else
+            echo "$ASSET_DATA_B64" | base64 -d > assets/quest.mnd
+            echo "Quest asset written ($(wc -c < assets/quest.mnd) bytes)"
+          fi
+
+      - name: Place app icon
+        shell: bash
+        env:
+          ICON_DATA_B64: ${{ secrets.ICON_PNG_B64 }}
+        run: |
+          if [ -n "$ICON_DATA_B64" ]; then
+            echo "$ICON_DATA_B64" | base64 -d > assets/icon.png
+            echo "Custom icon applied"
+          fi
+
+      - name: Set app name
+        shell: bash
+        run: |
+          APP_NAME="${{ inputs.app_name }}"
+          echo "Setting app name to: $APP_NAME"
+
+          # Android
+          if [ -f android/app/src/main/AndroidManifest.xml ]; then
+            sed -i "s|android:label=\"[^\"]*\"|android:label=\"$APP_NAME\"|g" android/app/src/main/AndroidManifest.xml
+          fi
+
+          # Linux
+          if [ -f linux/CMakeLists.txt ]; then
+            sed -i "s|set(APPLICATION_NAME.*)|set(APPLICATION_NAME \"$APP_NAME\")|g" linux/CMakeLists.txt
+          fi
+
+          # Web
+          if [ -f web/index.html ]; then
+            sed -i "s|<title>.*</title>|<title>$APP_NAME</title>|g" web/index.html
+          fi
+
+      - name: Set package name (Android)
+        if: contains(inputs.platform, 'android')
+        shell: bash
+        run: |
+          PACKAGE="${{ inputs.package_name }}"
+          echo "Setting package name to: $PACKAGE"
+          sed -i "s|namespace = \"[^\"]*\"|namespace = \"$PACKAGE\"|g" android/app/build.gradle.kts
+
+          # Update main manifest
+          sed -i "s|package=\"[^\"]*\"|package=\"$PACKAGE\"|g" android/app/src/main/AndroidManifest.xml
+
+      - name: Setup Android signing
+        if: contains(inputs.platform, 'android') && inputs.signing_keystore_b64 != ''
+        shell: bash
+        run: |
+          echo "${{ inputs.signing_keystore_b64 }}" | base64 -d > android/app/upload-keystore.jks
+          cat > android/key.properties << 'KEYPROPS'
+          storeFile=upload-keystore.jks
+          storePassword=${{ inputs.keystore_password }}
+          keyAlias=${{ inputs.key_alias }}
+          keyPassword=${{ inputs.key_password }}
+          KEYPROPS
+
+          echo "Signing keystore ready"
+
+      - name: Enable signing in Gradle
+        if: contains(inputs.platform, 'android') && inputs.signing_keystore_b64 != ''
+        shell: bash
+        run: |
+          # Replace debug signing config with release signing config in build.gradle.kts
+          sed -i '/signingConfigs {/,/^[[:space:]]*}/d' android/app/build.gradle.kts
+          cat >> android/app/build.gradle.kts << 'GRADLE' || true
+
+          android {
+              signingConfigs {
+                  create("release") {
+                      val keystorePropertiesFile = rootProject.file("key.properties")
+                      val keystoreProperties = java.util.Properties()
+                      keystoreProperties.load(keystorePropertiesFile.inputStream())
+                      storeFile = file(keystoreProperties["storeFile"] as String)
+                      storePassword = keystoreProperties["storePassword"] as String
+                      keyAlias = keystoreProperties["keyAlias"] as String
+                      keyPassword = keystoreProperties["keyPassword"] as String
+                  }
+              }
+              buildTypes {
+                  release {
+                      signingConfig = signingConfigs.getByName("release")
+                  }
+              }
+          }
+          GRADLE
+
+      - name: Generate launcher icons
+        shell: bash
+        run: |
+          if [ -f assets/icon.png ]; then
+            cat > flutter_launcher_icons.yaml << 'YAML'
+          flutter_launcher_icons:
+            android: true
+            ios: true
+            image_path: "assets/icon.png"
+          YAML
+            flutter pub add flutter_launcher_icons --dev
+            flutter pub run flutter_launcher_icons
+          else
+            echo "No custom icon, using defaults"
+          fi
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build Android APK
+        if: inputs.platform == 'android-apk'
+        run: flutter build apk --release
+
+      - name: Build Android AAB
+        if: inputs.platform == 'android-aab'
+        run: flutter build appbundle --release
+
+      - name: Build Web
+        if: inputs.platform == 'web'
+        run: flutter build web --release
+
+      - name: Build Windows
+        if: inputs.platform == 'windows'
+        shell: bash
+        run: |
+          APP_NAME="${{ inputs.app_name }}"
+          flutter build windows --release
+          mv build/windows/x64/runner/Release build/windows/x64/runner/"$APP_NAME"
+
+      - name: Build Linux
+        if: inputs.platform == 'linux'
+        shell: bash
+        run: |
+          APP_NAME="${{ inputs.app_name }}"
+          flutter build linux --release
+          mv build/linux/x64/release/bundle build/linux/x64/release/"$APP_NAME"
+
+      - name: Upload APK artifact
+        if: inputs.platform == 'android-apk'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app_name }}-android
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Upload AAB artifact
+        if: inputs.platform == 'android-aab'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app_name }}-android-bundle
+          path: build/app/outputs/bundle/release/app-release.aab
+
+      - name: Upload Web artifact
+        if: inputs.platform == 'web'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app_name }}-web
+          path: build/web/
+
+      - name: Upload Windows artifact
+        if: inputs.platform == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app_name }}-windows
+          path: build/windows/x64/runner/
+
+      - name: Upload Linux artifact
+        if: inputs.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app_name }}-linux
+          path: build/linux/x64/release/
+ 

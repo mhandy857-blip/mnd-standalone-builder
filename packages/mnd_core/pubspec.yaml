@@ -1,0 +1,27 @@
+name: mnd_core
+description: >-
+  Core of the Meander text-quest engine: data models, contracts (ports),
+  the script executor, runtime state, persistence services and importers.
+  Has no platform-specific dependencies (no path_provider, no firebase,
+  no audio backends) — everything is plugged in through small ports so
+  the engine can be embedded in any Flutter app, on any platform.
+version: 0.1.0
+repository: https://github.com/anomalyco/mnd
+issue_tracker: https://github.com/anomalyco/mnd/issues
+publish_to: none
+
+environment:
+  sdk: ^3.9.2
+  flutter: ">=1.17.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  uuid: ^3.0.7
+  meta: ^1.12.0
+  collection: ^1.18.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
